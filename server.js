@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cors = require('cors');
+const cookieParser = require('cookie-parser');
 
 require('dotenv').config();
 
@@ -12,9 +13,7 @@ const app = express();
 app.use(express.json({
     limit: '50mb',
     verify: (req, res, buf) => {
-        // Log para debug
         const size = (buf.length / 1024 / 1024).toFixed(2);
-        // console.log(`📦 Payload size: ${size} MB`); // Opcional: descomentar para debug
     }
 }));
 
@@ -23,6 +22,7 @@ app.use(express.urlencoded({
     limit: '50mb'
 }));
 
+app.use(cookieParser());
 
 
 // Cors Configuration
@@ -55,17 +55,10 @@ app.use((err, req, res, next) => {
 // RUTAS - Solo asociados por ahora
 // ============================================
 app.use('/api/asociados', require('./routes/asociadoRoutes.js'));
-app.use('/api/gestion', require('./routes/gestionRoutes.js'))
+app.use('/api/gestion', require('./routes/gestionRoutes.js'));
+app.use('/api/auth', require('./routes/loginRoutes.js'));
+app.use('/api/vinculacion', require('./routes/vinculacionRoutes.js'));
 
-// Ruta de prueba para verificar que el servidor funciona
-app.get('/api/health', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Servidor funcionando correctamente',
-        environment: process.env.NODE_ENV,
-        timestamp: new Date().toISOString()
-    });
-});
 
 // Ruta raíz
 app.get('/', (req, res) => {

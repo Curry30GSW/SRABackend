@@ -2,16 +2,31 @@ const Asociado = require('../models/asociadoModel')
 
 exports.getAll = async (req, res) => {
     try {
-        const { distrito, auxiliar, search, limit, page } = req.query;
+        const {
+            search,
+            limit,
+            page,
+            segmento,
+            sortBy,
+            sortOrder,
+            salarioMin,
+            salarioMax,
+            motivo,
+            distrito
+        } = req.query;
 
         const filters = {};
-        if (distrito) filters.distrito = parseInt(distrito);
-        if (auxiliar) filters.auxiliar = parseInt(auxiliar);
         if (search) filters.search = search;
         if (limit) filters.limit = parseInt(limit);
         if (page) filters.page = parseInt(page);
+        if (segmento) filters.segmento = segmento;
+        if (sortBy) filters.sortBy = sortBy;
+        if (sortOrder) filters.sortOrder = sortOrder;
+        if (salarioMin) filters.salarioMin = salarioMin;
+        if (salarioMax) filters.salarioMax = salarioMax;
+        if (motivo && motivo !== '' && motivo !== 'todos') filters.motivo = motivo;
+        if (distrito && distrito !== '' && distrito !== 'todos') filters.distrito = distrito;
 
-        // ✅ El método findAll ya devuelve { data, pagination }
         const result = await Asociado.findAll(filters);
 
         res.json({
@@ -35,7 +50,6 @@ exports.getAll = async (req, res) => {
 exports.getByNit = async (req, res) => {
     try {
         const { nit } = req.params;
-        console.log(`🔍 Buscando asociado por NIT: ${nit}`);
         // cedula requerida
         if (!nit) {
             return res.status(404).json({
@@ -102,6 +116,28 @@ exports.getByCuenta = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error al obtener los asociados por cuenta',
+            error: error.message
+        });
+    }
+}
+
+exports.getEstadisticas = async (req, res) => {
+    try {
+        const filters = {
+            search: req.query.search
+        };
+
+        const estadisticas = await Asociado.getEstadisticas(filters);
+
+        res.json({
+            success: true,
+            ...estadisticas
+        });
+    } catch (error) {
+        console.error('Error en getEstadisticas:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener las estadísticas',
             error: error.message
         });
     }
