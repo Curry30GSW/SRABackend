@@ -34,8 +34,8 @@ class Vinculacion {
         this.correo_electronico = data.correo_electronico || null;
 
         // Autorizaciones
-        this.centrar_riesgos = data.centrar_riesgos || false;
-        this.tratameinto_datos = data.tratameinto_datos || false;
+        this.central_riesgos = data.central_riesgos || false;
+        this.tratamiento_datos = data.tratamiento_datos || false;
         this.apertura_coopserp = data.apertura_coopserp || false;
 
 
