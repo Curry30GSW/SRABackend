@@ -4,10 +4,12 @@ const asociadoController = require('../controllers/asociadoController');
 
 
 
-router.get('/cuenta/:numeroCuenta', asociadoController.getByCuenta)
-router.get('/nit/:nit', asociadoController.getByNit)
+router.get('/cuenta/:numeroCuenta', asociadoController.getByCuenta);
+router.get('/nit/:nit', asociadoController.getByNit);
 
-router.get('/', asociadoController.getAll)
+router.get('/export', asociadoController.exportAsociados);
+
+router.get('/', asociadoController.getAll);
 router.get('/estadisticas', asociadoController.getEstadisticas);
 
 module.exports = router     

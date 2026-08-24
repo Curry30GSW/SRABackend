@@ -1,12 +1,14 @@
-const vinculacion = require('../models/vinculacionModel')
-const LinkAfiliacion = require('../models/LinkAfiliacionModel')
+const vinculacion = require('../models/vinculacionModel');
+const LinkAfiliacion = require('../models/LinkAfiliacionModel');
 
+// ============================================================
+// CREAR NUEVA POSTULACIÓN
+// ============================================================
 exports.create = async (req, res) => {
     try {
         const data = req.body;
         const { codigo_link } = req.query;
 
-        // Validaciones básicas
         if (!data.numero_documento) {
             return res.status(400).json({
                 success: false,
@@ -21,33 +23,39 @@ exports.create = async (req, res) => {
             });
         }
 
-        // Verificar si ya existe un proceso con esta cédula
-        const existente = await vinculacion.findByDocumento(data.numero_documento);
-
-        if (existente) {
-            return res.status(400).json({
-                success: false,
-                message: 'Ya existe un proceso con esta cédula'
-            });
+        // ✅ Verificar si existe una postulación activa
+        try {
+            const puedePostular = await vinculacion.puedePostular(data.numero_documento);
+            if (!puedePostular.puede) {
+                return res.status(400).json({
+                    success: false,
+                    message: puedePostular.mensaje
+                });
+            }
+        } catch (error) {
+            // Si el método no existe, continuar con validación tradicional
+            const existente = await vinculacion.findByDocumento(data.numero_documento);
+            if (existente) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Ya existe un proceso activo con esta cédula'
+                });
+            }
         }
 
-        // Si viene un código de link, validarlo
         let idUsuarioAfiliador = null;
         let linkValido = false;
 
         if (codigo_link) {
             const resultado = await LinkAfiliacion.validarLink(codigo_link);
-
             if (!resultado.valido) {
                 return res.status(400).json({
                     success: false,
                     message: resultado.message
                 });
             }
-
             linkValido = true;
             idUsuarioAfiliador = resultado.link.id_usuario;
-
             await LinkAfiliacion.incrementarUso(codigo_link);
         }
 
@@ -78,6 +86,9 @@ exports.create = async (req, res) => {
     }
 };
 
+// ============================================================
+// OBTENER POR ID
+// ============================================================
 exports.getById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -104,16 +115,18 @@ exports.getById = async (req, res) => {
     }
 };
 
+// ============================================================
+// OBTENER POR DOCUMENTO
+// ============================================================
 exports.getByDocumento = async (req, res) => {
     try {
         const { numero_documento } = req.params;
         const resultado = await vinculacion.findByDocumento(numero_documento);
 
-
         if (!resultado) {
             return res.status(404).json({
                 success: false,
-                message: 'No Documento no existe'
+                message: 'No existe un registro con este documento'
             });
         }
 
@@ -132,10 +145,21 @@ exports.getByDocumento = async (req, res) => {
     }
 };
 
-exports.getByCuenta = async (req, res) => {
+// ============================================================
+// OBTENER TODAS LAS POSTULACIONES DE UN DOCUMENTO (NUEVO)
+// ============================================================
+exports.getPostulacionesByDocumento = async (req, res) => {
     try {
-        const { cuenta } = req.params;
-        const resultado = await Vinculacion.findByCuenta(cuenta);
+        const { numero_documento } = req.params;
+
+        if (!numero_documento) {
+            return res.status(400).json({
+                success: false,
+                message: 'Número de documento requerido'
+            });
+        }
+
+        const resultado = await vinculacion.getPostulacionesByDocumento(numero_documento);
 
         res.status(200).json({
             success: true,
@@ -143,15 +167,49 @@ exports.getByCuenta = async (req, res) => {
             count: resultado.length
         });
     } catch (error) {
-        console.error('Error en getByCuenta Vinculacion:', error);
+        console.error('Error en getPostulacionesByDocumento:', error);
         res.status(500).json({
             success: false,
-            message: 'Error al buscar por cuenta',
+            message: 'Error al obtener las postulaciones',
             error: error.message
         });
     }
 };
 
+// ============================================================
+// OBTENER HISTORIAL DE UNA POSTULACIÓN (NUEVO)
+// ============================================================
+exports.getHistorial = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID de postulación requerido'
+            });
+        }
+
+        const historial = await vinculacion.getHistorial(id);
+
+        res.status(200).json({
+            success: true,
+            data: historial,
+            count: historial.length
+        });
+    } catch (error) {
+        console.error('Error en getHistorial:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener el historial',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// LISTAR TODOS (Paginado)
+// ============================================================
 exports.getAll = async (req, res) => {
     try {
         const {
@@ -159,7 +217,6 @@ exports.getAll = async (req, res) => {
             numero_documento,
             nombres,
             apellidos,
-            cuenta_asociado,
             page,
             limit
         } = req.query;
@@ -169,7 +226,6 @@ exports.getAll = async (req, res) => {
         if (numero_documento) filters.numero_documento = numero_documento;
         if (nombres) filters.nombres = nombres;
         if (apellidos) filters.apellidos = apellidos;
-
         if (page) filters.page = parseInt(page);
         if (limit) filters.limit = parseInt(limit);
 
@@ -191,10 +247,14 @@ exports.getAll = async (req, res) => {
     }
 };
 
+// ============================================================
+// ACTUALIZAR ESTADO (MANTIENE COMPATIBILIDAD CON FRONTEND)
+// ============================================================
 exports.updateEstado = async (req, res) => {
     try {
         const { id } = req.params;
         const { estado } = req.body;
+        const usuario = req.user?.nombre || req.cookies?.usuario || 'SISTEMA';
 
         if (!estado) {
             return res.status(400).json({
@@ -203,7 +263,15 @@ exports.updateEstado = async (req, res) => {
             });
         }
 
-        const resultado = await vinculacion.updateEstado(id, estado);
+        const estadosValidos = ['PENDIENTE', 'EN_REVISION', 'APROBADO', 'RECHAZADO'];
+        if (!estadosValidos.includes(estado)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Estado no válido. Estados permitidos: ' + estadosValidos.join(', ')
+            });
+        }
+
+        const resultado = await vinculacion.cambiarEstado(id, estado, null, usuario);
 
         if (!resultado) {
             return res.status(404).json({
@@ -216,6 +284,7 @@ exports.updateEstado = async (req, res) => {
             success: true,
             message: 'Estado actualizado correctamente'
         });
+
     } catch (error) {
         console.error('Error en updateEstado Vinculacion:', error);
         res.status(500).json({
@@ -226,6 +295,69 @@ exports.updateEstado = async (req, res) => {
     }
 };
 
+// ============================================================
+// CAMBIAR ESTADO CON MOTIVO (NUEVO, MÁS COMPLETO)
+// ============================================================
+exports.cambiarEstado = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { estado, motivo } = req.body;
+        const usuario = req.user?.nombre || req.cookies?.usuario || 'SISTEMA';
+
+        if (!estado) {
+            return res.status(400).json({
+                success: false,
+                message: 'El estado es requerido'
+            });
+        }
+
+        const estadosValidos = [
+            'PENDIENTE',
+            'EN_REVISION',
+            'APROBADO',
+            'RECHAZADO',
+            'DESISTIMIENTO',
+            'CAPACIDAD_PAGO_NEGATIVA',
+            'SCORE_BAJO',
+            'EMBARGO',
+            'EMPRESA_PRIVADA'
+        ];
+
+        if (!estadosValidos.includes(estado)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Estado no válido. Estados permitidos: ' + estadosValidos.join(', ')
+            });
+        }
+
+        const resultado = await vinculacion.cambiarEstado(id, estado, motivo, usuario);
+
+        if (!resultado) {
+            return res.status(404).json({
+                success: false,
+                message: 'Registro no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Estado actualizado correctamente',
+            data: { id, estado, motivo }
+        });
+
+    } catch (error) {
+        console.error('Error en cambiarEstado:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar el estado',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// OBTENER POR USUARIO AFILIADOR
+// ============================================================
 exports.getByUsuarioAfiliador = async (req, res) => {
     try {
         const { id_usuario } = req.params;
@@ -257,6 +389,9 @@ exports.getByUsuarioAfiliador = async (req, res) => {
     }
 };
 
+// ============================================================
+// OBTENER POR CÓDIGO DE LINK
+// ============================================================
 exports.getByCodigoLink = async (req, res) => {
     try {
         const { codigo } = req.params;
@@ -286,6 +421,9 @@ exports.getByCodigoLink = async (req, res) => {
     }
 };
 
+// ============================================================
+// ESTADÍSTICAS GENERALES
+// ============================================================
 exports.getEstadisticasGenerales = async (req, res) => {
     try {
         const estadisticas = await vinculacion.getEstadisticasGenerales();
@@ -305,6 +443,9 @@ exports.getEstadisticasGenerales = async (req, res) => {
     }
 };
 
+// ============================================================
+// ESTADÍSTICAS POR USUARIO
+// ============================================================
 exports.getEstadisticasByUsuario = async (req, res) => {
     try {
         const { id_usuario } = req.params;
@@ -333,6 +474,9 @@ exports.getEstadisticasByUsuario = async (req, res) => {
     }
 };
 
+// ============================================================
+// VALIDAR DOCUMENTO (CONTRA AS400)
+// ============================================================
 exports.validarDocumento = async (req, res) => {
     try {
         const { numero_documento } = req.params;
@@ -356,6 +500,104 @@ exports.validarDocumento = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error al validar el documento',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// VERIFICAR SI PUEDE POSTULAR (NUEVO)
+// ============================================================
+exports.puedePostular = async (req, res) => {
+    try {
+        const { numero_documento } = req.params;
+
+        if (!numero_documento) {
+            return res.status(400).json({
+                success: false,
+                message: 'Número de documento requerido'
+            });
+        }
+
+        const resultado = await vinculacion.puedePostular(numero_documento);
+
+        res.status(200).json({
+            success: true,
+            data: resultado
+        });
+
+    } catch (error) {
+        console.error('Error en puedePostular:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al verificar si puede postular',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// ACTUALIZAR POSTULACIÓN (NUEVO)
+// ============================================================
+exports.update = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const data = req.body;
+
+        const existente = await vinculacion.findById(id);
+        if (!existente) {
+            return res.status(404).json({
+                success: false,
+                message: 'Registro no encontrado'
+            });
+        }
+
+        const resultado = await vinculacion.update(id, data);
+
+        res.status(200).json({
+            success: true,
+            message: 'Registro actualizado correctamente',
+            data: resultado
+        });
+
+    } catch (error) {
+        console.error('Error en update Vinculacion:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar el registro',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// ELIMINAR (SOFT DELETE) - NUEVO
+// ============================================================
+exports.delete = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const existente = await vinculacion.findById(id);
+        if (!existente) {
+            return res.status(404).json({
+                success: false,
+                message: 'Registro no encontrado'
+            });
+        }
+
+        const usuario = req.user?.nombre || req.cookies?.usuario || 'SISTEMA';
+        await vinculacion.cambiarEstado(id, 'RECHAZADO', 'Eliminado por usuario', usuario);
+
+        res.status(200).json({
+            success: true,
+            message: 'Registro desactivado correctamente'
+        });
+
+    } catch (error) {
+        console.error('Error en delete Vinculacion:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al eliminar el registro',
             error: error.message
         });
     }

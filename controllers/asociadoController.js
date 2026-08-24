@@ -142,3 +142,37 @@ exports.getEstadisticas = async (req, res) => {
         });
     }
 }
+
+exports.exportAsociados = async (req, res) => {
+    try {
+        const filters = {
+            search: req.query.search,
+            distrito: req.query.distrito,
+            motivo: req.query.motivo,
+            salarioMin: req.query.salarioMin,
+            salarioMax: req.query.salarioMax,
+            segmento: req.query.segmento,
+            sortBy: req.query.sortBy || 'DIST05',
+            sortOrder: req.query.sortOrder || 'asc',
+        };
+
+        const result = await Asociado.exportAll(filters);
+
+        res.status(200).json({
+            success: true,
+            data: result.data,
+            total: result.total,
+            filters: result.filters,
+            message: `Se exportaron ${result.total} registros`
+        });
+
+
+    } catch (error) {
+        console.error('Error en getEstadisticas:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener las estadísticas',
+            error: error.message
+        });
+    }
+}  

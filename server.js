@@ -59,6 +59,7 @@ app.use('/api/gestion', require('./routes/gestionRoutes.js'));
 app.use('/api/auth', require('./routes/loginRoutes.js'));
 app.use('/api/vinculacion', require('./routes/vinculacionRoutes.js'));
 app.use('/api/links', require('./routes/linkAfiliacionRoutes.js'));
+app.use('/api/score', require('./routes/scoreRoutes.js'));
 
 
 // Ruta raíz

@@ -1,9 +1,8 @@
 const pool = require('../config/mysqlConnection');
-const { executeQuery } = require('../config/db')
+const { executeQuery } = require('../config/db');
 
 class Asociado {
     constructor(data = {}) {
-        // Mantener los nombres originales de AS400 y aplicar trim
         this.DIST05 = data.DIST05 ? data.DIST05.toString().trim() : '';
         this.AAUX05 = data.AAUX05 ? data.AAUX05.toString().trim() : '';
         this.NCTA05 = data.NCTA05 ? data.NCTA05.toString().trim() : '';
@@ -329,6 +328,125 @@ class Asociado {
             };
         } catch (error) {
             console.error('Error en getEstadisticas:', error);
+            throw error;
+        }
+    }
+
+    static async exportAll(filters = {}) {
+        const exportFilters = { ...filters };
+        delete exportFilters.page;
+        delete exportFilters.limit;
+
+        let sql = `
+            SELECT 
+                ACP05.DIST05,
+                ACP05.NCTA05,
+                ACP05.DESC05,
+                ACP05.NNIT05,
+                ACP05.CIUD05,
+                ACP05.MORE05,
+                ACP05.FRDA05,
+                ACP05.BASE05,
+                ACP05.FECN05,
+                ACP054.MAIL05,
+                ACP054.TCEL05,
+                ACP054.TCE205,
+                ACP054.TCE305,
+                ACP054.WHA105,
+                ACP054.WHA205,
+                ACP054.WHA305,
+                ACP04.DESC04,
+                ACP03.DESC03 
+            FROM COLIB.ACP04 ACP04
+            INNER JOIN COLIB.ACP05 ACP05 ON ACP05.NOMI05 = ACP04.NOMI04
+            INNER JOIN COLIB.ACP054 ACP054 ON ACP054.EMPR05 = ACP05.EMPR05 AND ACP054.NCTA05 = ACP05.NCTA05
+            INNER JOIN COLIB.ACP03 ACP03 ON ACP03.DIST03 = ACP05.DIST05  
+            WHERE ACP05.DIST05 != 0
+                AND ACP05.INDC05 = 2
+                AND ACP05.AAUX05 NOT IN (60, 61)
+                AND ACP05.NOMI05 NOT IN ('38', 'XS', 'TÑ', 'JK', 'LU')
+                AND ACP05.EMPR05 = '01'
+                AND ACP04.DESC04 != 'CUENTA INHABILITADA'
+            `;
+
+        const params = [];
+
+        // 1. FILTRO POR BÚSQUEDA GLOBAL
+        if (exportFilters.search) {
+            const searchTerm = `%${exportFilters.search}%`;
+            sql += ` AND (ACP05.DESC05 LIKE ? OR ACP05.NNIT05 LIKE ? OR ACP05.CIUD05 LIKE ?)`;
+            params.push(searchTerm, searchTerm, searchTerm);
+        }
+
+        //  2. FILTRO POR DISTRITO (AGENCIA)
+        if (exportFilters.distrito && exportFilters.distrito !== '' && exportFilters.distrito !== 'todos') {
+            sql += ` AND ACP05.DIST05 = ?`;
+            params.push(exportFilters.distrito);
+        }
+
+        //  3. FILTRO POR MOTIVO DE RETIRO
+        if (exportFilters.motivo && exportFilters.motivo !== '' && exportFilters.motivo !== 'todos') {
+            sql += ` AND ACP05.MORE05 = ?`;
+            params.push(exportFilters.motivo);
+        }
+
+        //  4. FILTRO POR RANGO DE SALARIO
+        const baseField = `CAST(REPLACE(REPLACE(ACP05.BASE05, ',', ''), '.', '') AS DECIMAL(15,2))`;
+
+        if (exportFilters.salarioMin && exportFilters.salarioMin !== '') {
+            sql += ` AND ${baseField} >= ?`;
+            params.push(parseFloat(exportFilters.salarioMin));
+        }
+
+        if (exportFilters.salarioMax && exportFilters.salarioMax !== '') {
+            sql += ` AND ${baseField} <= ?`;
+            params.push(parseFloat(exportFilters.salarioMax));
+        }
+
+        // 5. FILTRO POR SEGMENTO
+        if (exportFilters.segmento && exportFilters.segmento !== 'todos' && exportFilters.segmento !== '') {
+            if (exportFilters.segmento === 'oro') {
+                sql += ` AND ${baseField} >= 5000000`;
+            } else if (exportFilters.segmento === 'plata') {
+                sql += ` AND ${baseField} >= 3500000 AND ${baseField} < 5000000`;
+            } else if (exportFilters.segmento === 'bronce') {
+                sql += ` AND ${baseField} < 3500000`;
+            }
+        }
+
+        // 6. ORDENAMIENTO (opcional, pero útil para consistencia)
+        if (exportFilters.sortBy) {
+            const validSortFields = ['DESC05', 'NNIT05', 'CIUD05', 'FRDA05', 'DIST05'];
+            let sortField = exportFilters.sortBy;
+            let sortOrder = exportFilters.sortOrder === 'desc' ? 'DESC' : 'ASC';
+
+            if (exportFilters.sortBy === 'BASE05') {
+                sortField = baseField;
+            } else if (exportFilters.sortBy === 'DIST05') {
+                sortField = 'ACP05.DIST05';
+            } else if (validSortFields.includes(exportFilters.sortBy)) {
+                sortField = exportFilters.sortBy;
+            } else {
+                sortField = 'ACP05.DIST05';
+            }
+
+            sql += ` ORDER BY ${sortField} ${sortOrder}`;
+        } else {
+            sql += ` ORDER BY ACP05.DIST05 ASC`;
+        }
+
+        try {
+            //  Ejecutar sin LIMIT ni paginación
+            const result = await executeQuery(sql, params);
+            const data = result.map(row => new Asociado(row));
+
+            return {
+                data,
+                total: data.length,
+                filters: exportFilters
+            };
+        } catch (error) {
+            console.error('Error en exportAll Asociado:', error);
             throw error;
         }
     }
