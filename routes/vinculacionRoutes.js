@@ -9,6 +9,8 @@ const vinculacionController = require('../controllers/vinculacionController')
 // Crear nueva vinculación
 router.post('/', vinculacionController.create);
 
+router.post('/:id/pasar-fase2', vinculacionController.pasarFase2);
+
 // Obtener todas (paginado)
 router.get('/', vinculacionController.getAll);
 
@@ -57,5 +59,28 @@ router.put('/:id', vinculacionController.update);
 
 // ✅ Eliminar (soft delete)
 router.delete('/:id', vinculacionController.delete);
+
+// ============================================================
+// RUTAS PRINCIPALES DE FASE 2
+// ============================================================
+
+// ✅ Obtener todas las Fase 2 (con paginación)
+router.get('/', vinculacionController.getAllFase2);
+
+// ✅ Obtener Fase 2 por ID
+router.get('/:id', vinculacionController.getFase2ById);
+
+// ✅ Obtener Fase 2 por ID de postulación
+router.get('/postulacion/:idPostulacion', vinculacionController.getFase2ByPostulacion);
+
+// ✅ Verificar si una postulación tiene Fase 2
+router.get('/postulacion/:idPostulacion/tiene', vinculacionController.tieneFase2);
+
+// ✅ Actualizar Fase 2 con referencias
+router.put('/postulacion/:idPostulacion', vinculacionController.actualizarFase2);
+
+// ✅ Pasar a Fase 2 (crear registro y cambiar estado)
+router.post('/postulacion/:id/pasar-fase2', vinculacionController.pasarFase2);
+
 
 module.exports = router;

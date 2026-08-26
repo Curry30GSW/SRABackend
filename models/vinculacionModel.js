@@ -1,6 +1,6 @@
 const { executeQuery } = require('../config/db');
 const pool = require('../config/mysqlConnection');
-const { Score } = require('../models/scoreModel.js')
+const Score = require('../models/scoreModel.js')
 
 class Vinculacion {
     constructor(data = {}) {
@@ -359,8 +359,6 @@ class Vinculacion {
     // ============================================================
     // MÉTODOS DE CONSULTA
     // ============================================================
-
-    // ✅ Buscar por ID (compatible con el frontend)
     static async findById(id) {
         const sql = `
         SELECT 
@@ -406,7 +404,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ Buscar por documento (compatible con el frontend)
     static async findByDocumento(numero_documento) {
         const sql = `
         SELECT 
@@ -454,7 +451,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ Obtener todas las postulaciones de un asociado
     static async getPostulacionesByDocumento(numero_documento) {
         const sql = `
             SELECT 
@@ -485,7 +481,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ Obtener historial de una postulación
     static async getHistorial(idPostulacion) {
         const sql = `
             SELECT 
@@ -511,19 +506,66 @@ class Vinculacion {
         await connection.beginTransaction();
 
         try {
-            if (nuevoEstado === 'SCORE_BAJO') {
-                const vinculacion = await this.findById(idPostulacion);
-                const scoreInfo = await Score.getScoreByNit(vinculacion.numero_documento);
+            // Verificar si la postulación existe
+            const postulacion = await this.findById(idPostulacion);
+            if (!postulacion) {
+                throw new Error('Postulación no encontrada');
+            }
 
-                if (!scoreInfo.tiene_score) {
-                    throw new Error('No se ha realizado la consulta de score para este asociado');
+            // ✅ Validar que el estado sea válido
+            const estadosValidos = [
+                'PENDIENTE',
+                'EN_REVISION',
+                'APROBADO',
+                'RECHAZADO',
+                'DESISTIMIENTO',
+                'CAPACIDAD_PAGO_NEGATIVA',
+                'SCORE_BAJO',
+                'EMBARGO',
+                'EMPRESA_PRIVADA',
+                'PENDIENTE_DATACREDITO',
+                'EN_TRAMITE'
+            ];
+
+            if (!estadosValidos.includes(nuevoEstado)) {
+                throw new Error(`Estado no válido: ${nuevoEstado}`);
+            }
+
+            // ✅ Si es EN_TRAMITE (Fase 2), validar que tenga score
+            if (nuevoEstado === 'EN_TRAMITE') {
+                // Verificar si tiene score
+                const scoreInfo = await Score.getScoreByNit(postulacion.numero_documento);
+
+                if (!scoreInfo || !scoreInfo.tiene_score) {
+                    throw new Error('No se ha realizado la consulta de score para este asociado. No puede pasar a Fase 2.');
                 }
 
-                if (scoreInfo.score >= 650) {
-                    throw new Error(`El score del asociado es ${scoreInfo.score}, superior a 650. No aplica para "Score bajo".`);
+                // Verificar que no esté en un estado que impida pasar a Fase 2
+                const estadosInvalidos = ['RECHAZADO', 'DESISTIMIENTO', 'CAPACIDAD_PAGO_NEGATIVA', 'SCORE_BAJO', 'EMBARGO', 'EMPRESA_PRIVADA'];
+                if (estadosInvalidos.includes(postulacion.estado)) {
+                    throw new Error(`No se puede pasar a Fase 2 porque la postulación está en estado "${postulacion.estado}"`);
+                }
+
+                // Verificar que no esté ya en Fase 2
+                if (postulacion.estado === 'EN_TRAMITE') {
+                    throw new Error('La postulación ya está en Fase 2');
                 }
             }
 
+            // ✅ Si es SCORE_BAJO, validar que tenga score y que sea menor a 650
+            if (nuevoEstado === 'SCORE_BAJO') {
+                const scoreInfo = await Score.getScoreByNit(postulacion.numero_documento);
+
+                if (!scoreInfo || !scoreInfo.tiene_score) {
+                    throw new Error('No se ha realizado la consulta de score para este asociado. Primero debe consultar el score.');
+                }
+
+                if (scoreInfo.score >= 650) {
+                    throw new Error(`El score del asociado es ${scoreInfo.score}, superior o igual a 650. No aplica para "Score bajo".`);
+                }
+            }
+
+            // ✅ Actualizar el estado
             const sql = `
             UPDATE postulaciones 
             SET estado = ?, 
@@ -533,6 +575,7 @@ class Vinculacion {
         `;
             await connection.query(sql, [nuevoEstado, motivo || null, idPostulacion]);
 
+            // Registrar en historial
             await this.registrarHistorial(connection, idPostulacion, nuevoEstado, 'CAMBIO_ESTADO', motivo);
 
             await connection.commit();
@@ -550,7 +593,6 @@ class Vinculacion {
     // MÉTODOS EXISTENTES (adaptados)
     // ============================================================
 
-    // ✅ findAll - Listar todas las postulaciones
     static async findAll(filters = {}) {
         let sql = `
         SELECT 
@@ -684,8 +726,6 @@ class Vinculacion {
             throw error;
         }
     }
-
-    // ✅ getByUsuarioAfiliador - Postulaciones por usuario afiliador
     static async getByUsuarioAfiliador(idUsuario) {
         const sql = `
             SELECT 
@@ -714,7 +754,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ getEstadisticasByUsuario - Estadísticas por usuario afiliador
     static async getEstadisticasByUsuario(idUsuario) {
         const sql = `
             SELECT 
@@ -736,7 +775,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ getByCodigoLink - Postulaciones por código de link
     static async getByCodigoLink(codigoLink) {
         const sql = `
             SELECT 
@@ -765,7 +803,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ getEstadisticasGenerales - Estadísticas generales
     static async getEstadisticasGenerales() {
         const sql = `
             SELECT 
@@ -789,7 +826,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ validarDocumento - Validar documento contra AS400 (se mantiene igual)
     static async validarDocumento(numero_documento) {
         try {
             // ... (tu código existente)
@@ -864,7 +900,6 @@ class Vinculacion {
         }
     }
 
-    // ✅ update - Actualizar postulación (compatible con frontend)
     static async update(id, data) {
         const connection = await pool.getConnection();
         await connection.beginTransaction();
@@ -936,6 +971,241 @@ class Vinculacion {
         }
     }
 
+
+    //FASE 2
+    static async crearFase2(data) {
+        const sql = `
+        INSERT INTO fase2 (
+            id_postulacion,
+            id_asociado,
+            score,
+            fecha_score
+        ) VALUES (?, ?, ?, ?)
+    `;
+
+        const params = [
+            data.id_postulacion,
+            data.id_asociado,
+            data.score || null,
+            data.fecha_score || null
+        ];
+
+        try {
+            const [result] = await pool.query(sql, params);
+
+            if (result.insertId) {
+                // Obtener el registro creado
+                const fase2 = await this.getFase2ById(result.insertId);
+                return fase2;
+            }
+            return null;
+        } catch (error) {
+            console.error('Error en crearFase2:', error);
+            throw error;
+        }
+    }
+
+    // ✅ Obtener Fase 2 por ID
+    static async getFase2ById(id) {
+        const sql = `
+        SELECT 
+            f.*,
+            p.id_postulacion,
+            p.estado,
+            a.nombres,
+            a.apellidos,
+            a.numero_documento
+        FROM fase2 f
+        INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
+        INNER JOIN asociados a ON f.id_asociado = a.id_asociado
+        WHERE f.id_fase2 = ?
+    `;
+        try {
+            const [rows] = await pool.query(sql, [id]);
+            return rows.length > 0 ? rows[0] : null;
+        } catch (error) {
+            console.error('Error en getFase2ById:', error);
+            throw error;
+        }
+    }
+
+    // ✅ Obtener Fase 2 por ID de postulación
+    static async getFase2ByPostulacion(idPostulacion) {
+        const sql = `
+        SELECT 
+            f.*,
+            p.id_postulacion,
+            p.estado,
+            a.nombres,
+            a.apellidos,
+            a.numero_documento,
+            a.correo_electronico,
+            a.telefonos
+        FROM fase2 f
+        INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
+        INNER JOIN asociados a ON f.id_asociado = a.id_asociado
+        WHERE f.id_postulacion = ?
+    `;
+        try {
+            const [rows] = await pool.query(sql, [idPostulacion]);
+            return rows.length > 0 ? rows[0] : null;
+        } catch (error) {
+            console.error('Error en getFase2ByPostulacion:', error);
+            throw error;
+        }
+    }
+
+    // ✅ Actualizar Fase 2 con referencias
+    static async actualizarFase2(idPostulacion, data) {
+        const sql = `
+        UPDATE fase2 SET
+            familiar1_nombre = ?,
+            familiar1_parentesco = ?,
+            familiar1_telefono = ?,
+            familiar2_nombre = ?,
+            familiar2_parentesco = ?,
+            familiar2_telefono = ?,
+            personal1_nombre = ?,
+            personal1_telefono = ?,
+            personal1_direccion = ?,
+            personal2_nombre = ?,
+            personal2_telefono = ?,
+            personal2_direccion = ?,
+            conyuge_nombre = ?,
+            conyuge_cedula = ?,
+            conyuge_telefono = ?,
+            fecha_actualizacion = NOW()
+        WHERE id_postulacion = ?
+    `;
+
+        const params = [
+            data.familiar1_nombre || null,
+            data.familiar1_parentesco || null,
+            data.familiar1_telefono || null,
+            data.familiar2_nombre || null,
+            data.familiar2_parentesco || null,
+            data.familiar2_telefono || null,
+            data.personal1_nombre || null,
+            data.personal1_telefono || null,
+            data.personal1_direccion || null,
+            data.personal2_nombre || null,
+            data.personal2_telefono || null,
+            data.personal2_direccion || null,
+            data.conyuge_nombre || null,
+            data.conyuge_cedula || null,
+            data.conyuge_telefono || null,
+            idPostulacion
+        ];
+
+        try {
+            const [result] = await pool.query(sql, params);
+            if (result.affectedRows > 0) {
+                return await this.getFase2ByPostulacion(idPostulacion);
+            }
+            return null;
+        } catch (error) {
+            console.error('Error en actualizarFase2:', error);
+            throw error;
+        }
+    }
+
+    // ✅ Verificar si una postulación tiene Fase 2
+    static async tieneFase2(idPostulacion) {
+        const sql = 'SELECT id_fase2 FROM fase2 WHERE id_postulacion = ?';
+        try {
+            const [rows] = await pool.query(sql, [idPostulacion]);
+            return rows.length > 0;
+        } catch (error) {
+            console.error('Error en tieneFase2:', error);
+            throw error;
+        }
+    }
+
+    static async getAllFase2(filters = {}) {
+        const page = parseInt(filters.page) || 1;
+        const limit = parseInt(filters.limit) || 20;
+        const offset = (page - 1) * limit;
+
+        let sql = `
+        SELECT 
+            f.*,
+            p.id_postulacion,
+            p.estado,
+            a.nombres,
+            a.apellidos,
+            a.numero_documento,
+            a.correo_electronico
+        FROM fase2 f
+        INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
+        INNER JOIN asociados a ON f.id_asociado = a.id_asociado
+    `;
+
+        let countSql = `
+        SELECT COUNT(*) as total
+        FROM fase2 f
+        INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
+        INNER JOIN asociados a ON f.id_asociado = a.id_asociado
+    `;
+
+        const params = [];
+        const countParams = [];
+
+        // ✅ Filtros opcionales
+        if (filters.estado) {
+            sql += ` WHERE p.estado = ?`;
+            countSql += ` WHERE p.estado = ?`;
+            params.push(filters.estado);
+            countParams.push(filters.estado);
+        }
+
+        if (filters.numero_documento) {
+            const condition = sql.includes('WHERE') ? ' AND' : ' WHERE';
+            sql += `${condition} a.numero_documento LIKE ?`;
+            countSql += `${condition} a.numero_documento LIKE ?`;
+            params.push(`%${filters.numero_documento}%`);
+            countParams.push(`%${filters.numero_documento}%`);
+        }
+
+        if (filters.nombres) {
+            const condition = sql.includes('WHERE') ? ' AND' : ' WHERE';
+            sql += `${condition} a.nombres LIKE ?`;
+            countSql += `${condition} a.nombres LIKE ?`;
+            params.push(`%${filters.nombres}%`);
+            countParams.push(`%${filters.nombres}%`);
+        }
+
+        if (filters.apellidos) {
+            const condition = sql.includes('WHERE') ? ' AND' : ' WHERE';
+            sql += `${condition} a.apellidos LIKE ?`;
+            countSql += `${condition} a.apellidos LIKE ?`;
+            params.push(`%${filters.apellidos}%`);
+            countParams.push(`%${filters.apellidos}%`);
+        }
+
+        sql += ` ORDER BY f.fecha_creacion DESC LIMIT ? OFFSET ?`;
+
+        try {
+            const [countResult] = await pool.query(countSql, countParams);
+            const total = countResult[0]?.total || 0;
+
+            const [rows] = await pool.query(sql, [...params, limit, offset]);
+
+            return {
+                data: rows,
+                pagination: {
+                    page,
+                    limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
+                    hasNext: page < Math.ceil(total / limit),
+                    hasPrev: page > 1
+                }
+            };
+        } catch (error) {
+            console.error('Error en getAllFase2:', error);
+            throw error;
+        }
+    }
 
 }
 

@@ -263,7 +263,21 @@ exports.updateEstado = async (req, res) => {
             });
         }
 
-        const estadosValidos = ['PENDIENTE', 'EN_REVISION', 'APROBADO', 'RECHAZADO'];
+        // ✅ Actualizar con todos los estados disponibles
+        const estadosValidos = [
+            'PENDIENTE',
+            'EN_REVISION',
+            'APROBADO',
+            'RECHAZADO',
+            'DESISTIMIENTO',
+            'CAPACIDAD_PAGO_NEGATIVA',
+            'SCORE_BAJO',
+            'EMBARGO',
+            'EMPRESA_PRIVADA',
+            'PENDIENTE_DATACREDITO',
+            'EN_TRAMITE'
+        ];
+
         if (!estadosValidos.includes(estado)) {
             return res.status(400).json({
                 success: false,
@@ -298,19 +312,25 @@ exports.updateEstado = async (req, res) => {
 // ============================================================
 // CAMBIAR ESTADO CON MOTIVO (NUEVO, MÁS COMPLETO)
 // ============================================================
-exports.cambiarEstado = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { estado, motivo } = req.body;
-        const usuario = req.user?.nombre || req.cookies?.usuario || 'SISTEMA';
+exports.cambiarEstado = async (idPostulacion, nuevoEstado, motivo, usuario) => {
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
 
-        if (!estado) {
-            return res.status(400).json({
-                success: false,
-                message: 'El estado es requerido'
-            });
+    try {
+        // Verificar si la postulación existe
+        const postulacion = await this.findById(idPostulacion);
+        if (!postulacion) {
+            throw new Error('Postulación no encontrada');
         }
 
+        // ✅ Si ya está en el mismo estado, no hacer nada
+        if (postulacion.estado === nuevoEstado) {
+            await connection.commit();
+            connection.release();
+            return true;
+        }
+
+        // ✅ Validar que el estado sea válido
         const estadosValidos = [
             'PENDIENTE',
             'EN_REVISION',
@@ -320,38 +340,65 @@ exports.cambiarEstado = async (req, res) => {
             'CAPACIDAD_PAGO_NEGATIVA',
             'SCORE_BAJO',
             'EMBARGO',
-            'EMPRESA_PRIVADA'
+            'EMPRESA_PRIVADA',
+            'PENDIENTE_DATACREDITO',
+            'EN_TRAMITE'
         ];
 
-        if (!estadosValidos.includes(estado)) {
-            return res.status(400).json({
-                success: false,
-                message: 'Estado no válido. Estados permitidos: ' + estadosValidos.join(', ')
-            });
+        if (!estadosValidos.includes(nuevoEstado)) {
+            throw new Error(`Estado no válido: ${nuevoEstado}`);
         }
 
-        const resultado = await vinculacion.cambiarEstado(id, estado, motivo, usuario);
+        // ✅ Si es EN_TRAMITE (Fase 2), validar que tenga score
+        if (nuevoEstado === 'EN_TRAMITE') {
+            // Verificar si tiene score
+            const scoreInfo = await this.getScoreByNit(postulacion.numero_documento);
 
-        if (!resultado) {
-            return res.status(404).json({
-                success: false,
-                message: 'Registro no encontrado'
-            });
+            if (!scoreInfo || !scoreInfo.tiene_score) {
+                throw new Error('No se ha realizado la consulta de score para este asociado. No puede pasar a Fase 2.');
+            }
+
+            // Verificar que no esté en un estado que impida pasar a Fase 2
+            const estadosInvalidos = ['RECHAZADO', 'DESISTIMIENTO', 'CAPACIDAD_PAGO_NEGATIVA', 'SCORE_BAJO', 'EMBARGO', 'EMPRESA_PRIVADA'];
+            if (estadosInvalidos.includes(postulacion.estado)) {
+                throw new Error(`No se puede pasar a Fase 2 porque la postulación está en estado "${postulacion.estado}"`);
+            }
         }
 
-        res.status(200).json({
-            success: true,
-            message: 'Estado actualizado correctamente',
-            data: { id, estado, motivo }
-        });
+        // ✅ Si es SCORE_BAJO, validar que tenga score y que sea menor a 650
+        if (nuevoEstado === 'SCORE_BAJO') {
+            const scoreInfo = await this.getScoreByNit(postulacion.numero_documento);
 
+            if (!scoreInfo || !scoreInfo.tiene_score) {
+                throw new Error('No se ha realizado la consulta de score para este asociado. Primero debe consultar el score.');
+            }
+
+            if (scoreInfo.score >= 650) {
+                throw new Error(`El score del asociado es ${scoreInfo.score}, superior o igual a 650. No aplica para "Score bajo".`);
+            }
+        }
+
+        // ✅ Actualizar el estado
+        const sql = `
+            UPDATE postulaciones 
+            SET estado = ?, 
+                motivo_rechazo = ?,
+                fecha_actualizacion = NOW() 
+            WHERE id_postulacion = ?
+        `;
+        await connection.query(sql, [nuevoEstado, motivo || null, idPostulacion]);
+
+        // Registrar en historial
+        await this.registrarHistorial(connection, idPostulacion, nuevoEstado, 'CAMBIO_ESTADO', motivo);
+
+        await connection.commit();
+        connection.release();
+        return true;
     } catch (error) {
+        await connection.rollback();
+        connection.release();
         console.error('Error en cambiarEstado:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error al actualizar el estado',
-            error: error.message
-        });
+        throw error;
     }
 };
 
@@ -598,6 +645,284 @@ exports.delete = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Error al eliminar el registro',
+            error: error.message
+        });
+    }
+};
+
+
+exports.pasarFase2 = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { score, fecha_score } = req.body;
+        const usuario = req.user?.nombre || req.cookies?.usuario || 'SISTEMA';
+
+        // Verificar que la postulación existe
+        const postulacion = await vinculacion.findById(id);
+        if (!postulacion) {
+            return res.status(404).json({
+                success: false,
+                message: 'Postulación no encontrada'
+            });
+        }
+
+        // ✅ Verificar que tiene score
+        if (!score) {
+            return res.status(400).json({
+                success: false,
+                message: 'Debe tener un score registrado para pasar a Fase 2'
+            });
+        }
+
+        // ✅ Verificar que no esté ya en Fase 2
+        if (postulacion.estado === 'EN_TRAMITE') {
+            return res.status(400).json({
+                success: false,
+                message: 'La postulación ya está en Fase 2'
+            });
+        }
+
+        // ✅ Verificar que no esté en un estado que impida pasar a Fase 2
+        const estadosInvalidos = ['RECHAZADO', 'DESISTIMIENTO', 'CAPACIDAD_PAGO_NEGATIVA', 'SCORE_BAJO', 'EMBARGO', 'EMPRESA_PRIVADA'];
+        if (estadosInvalidos.includes(postulacion.estado)) {
+            return res.status(400).json({
+                success: false,
+                message: `No se puede pasar a Fase 2 porque la postulación está en estado "${postulacion.estado}"`
+            });
+        }
+
+        // Crear registro en fase2
+        const fase2Data = {
+            id_postulacion: id,
+            id_asociado: postulacion.id_asociado,
+            score: score,
+            fecha_score: fecha_score || new Date()
+        };
+
+        const fase2 = await vinculacion.crearFase2(fase2Data);
+
+        // Cambiar estado a EN_TRAMITE
+        await vinculacion.cambiarEstado(id, 'EN_TRAMITE', 'Paso a Fase 2', usuario);
+
+        res.status(200).json({
+            success: true,
+            message: 'Postulación pasada a Fase 2 exitosamente',
+            data: fase2
+        });
+
+    } catch (error) {
+        console.error('Error en pasarFase2:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al pasar a Fase 2',
+            error: error.message
+        });
+    }
+};
+
+
+exports.getFase2ByPostulacion = async (req, res) => {
+    try {
+        const { idPostulacion } = req.params;
+
+        if (!idPostulacion) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID de postulación requerido'
+            });
+        }
+
+        const fase2 = await vinculacion.getFase2ByPostulacion(idPostulacion);
+
+        if (!fase2) {
+            return res.status(404).json({
+                success: false,
+                message: 'No se encontró información de Fase 2 para esta postulación'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: fase2
+        });
+
+    } catch (error) {
+        console.error('Error en getFase2ByPostulacion:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener la información de Fase 2',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// ACTUALIZAR FASE 2 CON REFERENCIAS
+// ============================================================
+exports.actualizarFase2 = async (req, res) => {
+    try {
+        const { idPostulacion } = req.params;
+        const data = req.body;
+
+        // Verificar que la postulación existe
+        const postulacion = await vinculacion.findById(idPostulacion);
+        if (!postulacion) {
+            return res.status(404).json({
+                success: false,
+                message: 'Postulación no encontrada'
+            });
+        }
+
+        // Verificar que esté en Fase 2
+        if (postulacion.estado !== 'EN_TRAMITE') {
+            return res.status(400).json({
+                success: false,
+                message: `La postulación no está en Fase 2. Estado actual: ${postulacion.estado}`
+            });
+        }
+
+        // Validaciones básicas
+        if (!data.familiar1_nombre || !data.familiar1_parentesco || !data.familiar1_telefono) {
+            return res.status(400).json({
+                success: false,
+                message: 'La referencia familiar 1 es requerida (nombre, parentesco, teléfono)'
+            });
+        }
+
+        if (!data.personal1_nombre || !data.personal1_telefono) {
+            return res.status(400).json({
+                success: false,
+                message: 'La referencia personal 1 es requerida (nombre, teléfono)'
+            });
+        }
+
+        const fase2Actualizado = await vinculacion.actualizarFase2(idPostulacion, data);
+
+        if (!fase2Actualizado) {
+            return res.status(404).json({
+                success: false,
+                message: 'No se encontró el registro de Fase 2 para actualizar'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Información de Fase 2 actualizada correctamente',
+            data: fase2Actualizado
+        });
+
+    } catch (error) {
+        console.error('Error en actualizarFase2:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al actualizar la información de Fase 2',
+            error: error.message
+        });
+    }
+};
+
+// ============================================================
+// VERIFICAR SI UNA POSTULACIÓN TIENE FASE 2
+// ============================================================
+exports.tieneFase2 = async (req, res) => {
+    try {
+        const { idPostulacion } = req.params;
+
+        if (!idPostulacion) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID de postulación requerido'
+            });
+        }
+
+        const tiene = await vinculacion.tieneFase2(idPostulacion);
+
+        res.status(200).json({
+            success: true,
+            data: {
+                id_postulacion: parseInt(idPostulacion),
+                tiene_fase2: tiene
+            }
+        });
+
+    } catch (error) {
+        console.error('Error en tieneFase2:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al verificar Fase 2',
+            error: error.message
+        });
+    }
+};
+
+exports.getFase2ById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        if (!id) {
+            return res.status(400).json({
+                success: false,
+                message: 'ID de Fase 2 requerido'
+            });
+        }
+
+        const fase2 = await vinculacion.getFase2ById(id);
+
+        if (!fase2) {
+            return res.status(404).json({
+                success: false,
+                message: 'Registro de Fase 2 no encontrado'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: fase2
+        });
+
+    } catch (error) {
+        console.error('Error en getFase2ById:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener el registro de Fase 2',
+            error: error.message
+        });
+    }
+};
+
+exports.getAllFase2 = async (req, res) => {
+    try {
+        const {
+            page,
+            limit,
+            estado,
+            numero_documento,
+            nombres,
+            apellidos
+        } = req.query;
+
+        const filters = {};
+        if (page) filters.page = parseInt(page);
+        if (limit) filters.limit = parseInt(limit);
+        if (estado) filters.estado = estado;
+        if (numero_documento) filters.numero_documento = numero_documento;
+        if (nombres) filters.nombres = nombres;
+        if (apellidos) filters.apellidos = apellidos;
+
+        const resultado = await vinculacion.getAllFase2(filters);
+
+        res.status(200).json({
+            success: true,
+            data: resultado.data,
+            pagination: resultado.pagination,
+            filters
+        });
+
+    } catch (error) {
+        console.error('Error en getAllFase2:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener las Fase 2',
             error: error.message
         });
     }

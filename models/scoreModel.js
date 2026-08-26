@@ -2,27 +2,29 @@ const { executeQuery } = require('../config/db');
 
 class Score {
     constructor(data = {}) {
-        this.SCORE = data.SCORE ? data.SCORE.toString() : '';
-        this.FEC_SCORE = data.FEC_SCORE ? data.FEC_SCORE.toString().trim() : '';
+        this.score = data.score || data.SCORE || null;
+        this.fec_score = data.fec_score || data.FEC_SCORE || null;
     }
 
     static async getScoreByNit(nit) {
         const sql = `
-        SELECT 
-            score,
-            fec_score
-        FROM COLIB.ACPSCORE 
-        WHERE nit = ?
-        ORDER BY fec_score DESC 
-        LIMIT 1
-    `;
+            SELECT 
+                score,
+                fec_score
+            FROM COLIB.ACPSCORE 
+            WHERE nit = ?
+            ORDER BY fec_score DESC 
+            LIMIT 1
+        `;
 
         try {
             const result = await executeQuery(sql, [nit]);
+
             if (result && result.length > 0) {
+                const row = result[0];
                 return {
-                    score: result[0].score,
-                    fec_score: result[0].fec_score,
+                    score: row.score || row.SCORE,
+                    fec_score: row.fec_score || row.FEC_SCORE,
                     tiene_score: true
                 };
             }
@@ -41,6 +43,5 @@ class Score {
         }
     }
 }
-
 
 module.exports = Score;

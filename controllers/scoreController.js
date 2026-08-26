@@ -1,4 +1,4 @@
-const Score = require('../models/scoreModel')
+const Score = require('../models/scoreModel');
 
 exports.getScore = async (req, res) => {
     try {
