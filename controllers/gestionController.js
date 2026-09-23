@@ -102,7 +102,6 @@ exports.getById = async (req, res) => {
 exports.getByCedula = async (req, res) => {
     try {
         const { cedula } = req.params
-        console.log(`🔍 Buscando gestiones por cedula: ${cedula}`);
 
         if (!cedula) {
             return res.status(404).json({

@@ -11,8 +11,12 @@ router.post('/', vinculacionController.create);
 
 router.post('/:id/pasar-fase2', vinculacionController.pasarFase2);
 
+
+
 // Obtener todas (paginado)
 router.get('/', vinculacionController.getAll);
+
+router.get('/fase2', vinculacionController.getAllFase2);
 
 // Obtener por ID
 router.get('/:id', vinculacionController.getById);
@@ -42,44 +46,44 @@ router.get('/estadisticas/generales', vinculacionController.getEstadisticasGener
 // NUEVAS RUTAS (OPCIONALES, PARA FUNCIONALIDADES EXTRA)
 // ============================================================
 
-// ✅ Obtener todas las postulaciones de un documento (historial de postulaciones)
+//  Obtener todas las postulaciones de un documento (historial de postulaciones)
 router.get('/postulaciones/:numero_documento', vinculacionController.getPostulacionesByDocumento);
 
-// ✅ Obtener historial de estados de una postulación
+//  Obtener historial de estados de una postulación
 router.get('/historial/:id', vinculacionController.getHistorial);
 
-// ✅ Verificar si puede postular
+//  Verificar si puede postular
 router.get('/puede-postular/:numero_documento', vinculacionController.puedePostular);
 
-// ✅ Cambiar estado con motivo (versión mejorada)
+//  Cambiar estado con motivo (versión mejorada)
 router.put('/:id/cambiar-estado', vinculacionController.cambiarEstado);
 
-// ✅ Actualizar datos del asociado
+// Actualizar datos del asociado
 router.put('/:id', vinculacionController.update);
 
-// ✅ Eliminar (soft delete)
+// Eliminar (soft delete)
 router.delete('/:id', vinculacionController.delete);
 
 // ============================================================
 // RUTAS PRINCIPALES DE FASE 2
 // ============================================================
 
-// ✅ Obtener todas las Fase 2 (con paginación)
-router.get('/', vinculacionController.getAllFase2);
+// Obtener todas las Fase 2 (con paginación)
+// router.get('/fase2', vinculacionController.getAllFase2);
 
-// ✅ Obtener Fase 2 por ID
-router.get('/:id', vinculacionController.getFase2ById);
+//  Obtener Fase 2 por ID
+router.get('/fase2/:id', vinculacionController.getFase2ById);
 
-// ✅ Obtener Fase 2 por ID de postulación
+//  Obtener Fase 2 por ID de postulación
 router.get('/postulacion/:idPostulacion', vinculacionController.getFase2ByPostulacion);
 
-// ✅ Verificar si una postulación tiene Fase 2
+//  Verificar si una postulación tiene Fase 2
 router.get('/postulacion/:idPostulacion/tiene', vinculacionController.tieneFase2);
 
-// ✅ Actualizar Fase 2 con referencias
+//  Actualizar Fase 2 con referencias
 router.put('/postulacion/:idPostulacion', vinculacionController.actualizarFase2);
 
-// ✅ Pasar a Fase 2 (crear registro y cambiar estado)
+//  Pasar a Fase 2 (crear registro y cambiar estado)
 router.post('/postulacion/:id/pasar-fase2', vinculacionController.pasarFase2);
 
 

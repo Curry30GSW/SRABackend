@@ -60,6 +60,7 @@ app.use('/api/auth', require('./routes/loginRoutes.js'));
 app.use('/api/vinculacion', require('./routes/vinculacionRoutes.js'));
 app.use('/api/links', require('./routes/linkAfiliacionRoutes.js'));
 app.use('/api/score', require('./routes/scoreRoutes.js'));
+app.use('/api/usuarios', require('./routes/userRoutes.js'));
 
 
 // Ruta raíz
@@ -74,24 +75,6 @@ app.get('/', (req, res) => {
     });
 });
 
-// ============================================
-// JOBS (Comentado por ahora)
-// ============================================
-// try {
-//     require('./jobs');
-//     console.log('✅ Jobs programados iniciados correctamente');
-// } catch (error) {
-//     console.error('❌ Error al iniciar jobs:', error);
-// }
-
-// ============================================
-// ARCHIVOS ESTÁTICOS
-// ============================================
-
-// ============================================
-// MANEJO DE ERRORES (Debe ir al final)
-// ============================================
-// app.use(require('./middlewares/errorHandler'));
 
 // ============================================
 // INICIAR SERVIDOR

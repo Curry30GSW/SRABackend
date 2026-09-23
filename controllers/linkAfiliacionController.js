@@ -11,6 +11,15 @@ exports.crearLink = async (req, res) => {
             });
         }
 
+        const existe = await LinkAfiliacion.getByUsuario(id_usuario)
+
+        if (existe.length > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Usuario ya tiene link'
+            });
+        }
+
         const link = await LinkAfiliacion.crear(id_usuario, usuario, uso_maximo, dias_expiracion);
 
         if (!link) {
@@ -98,8 +107,10 @@ exports.validarLink = async (req, res) => {
         res.json({
             success: true,
             data: {
+                id: resultado.link.id_usuario,
                 codigo: resultado.link.codigo,
                 usuario: resultado.link.usuario,
+                nombre: resultado.link.nombre_usuario,
                 fecha_expiracion: resultado.link.fecha_expiracion
             },
             message: 'Link válido'

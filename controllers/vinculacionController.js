@@ -1,13 +1,99 @@
 const vinculacion = require('../models/vinculacionModel');
 const LinkAfiliacion = require('../models/LinkAfiliacionModel');
+const { enviarCorreoSolicitudVinculacion } = require('../services/vinculacion.email');
 
 // ============================================================
 // CREAR NUEVA POSTULACIÓN
 // ============================================================
+// exports.create = async (req, res) => {
+//     try {
+//         const data = req.body;
+
+//         if (!data.numero_documento) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'El número de documento es requerido'
+//             });
+//         }
+
+//         if (!data.nombres || !data.apellidos) {
+//             return res.status(400).json({
+//                 success: false,
+//                 message: 'Nombres y apellidos son requeridos'
+//             });
+//         }
+
+//         //  Verificar si existe una postulación activa
+//         try {
+//             const puedePostular = await vinculacion.puedePostular(data.numero_documento);
+//             if (!puedePostular.puede) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     message: puedePostular.mensaje
+//                 });
+//             }
+//         } catch (error) {
+//             // Si el método no existe, continuar con validación tradicional
+//             const existente = await vinculacion.findByDocumento(data.numero_documento);
+//             if (existente) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     message: 'Ya existe un proceso activo con esta cédula'
+//                 });
+//             }
+//         }
+
+//         let idUsuarioAfiliador = data.id_usuario_afiliador || null
+//         const codigoLink = data.codigo_link || null
+
+
+//         let linkValido = false;
+
+//         if (codigoLink) {
+//             const resultado = await LinkAfiliacion.validarLink(codigoLink);
+
+//             if (!resultado.valido) {
+//                 return res.status(400).json({
+//                     success: false,
+//                     message: resultado.message
+//                 });
+//             }
+
+//             linkValido = true;
+//             idUsuarioAfiliador = resultado.link.id_usuario;
+//             await LinkAfiliacion.incrementarUso(codigoLink);
+//         }
+
+//         const vinculacionData = {
+//             ...data,
+//             codigo_link: codigoLink || null,
+//             id_usuario_afiliador: idUsuarioAfiliador
+//         };
+
+//         const resultado = await vinculacion.create(vinculacionData);
+
+//         res.status(201).json({
+//             success: true,
+//             message: linkValido
+//                 ? 'Solicitud de vinculación creada exitosamente a través del link'
+//                 : 'Solicitud de vinculación creada exitosamente',
+//             data: resultado,
+//             tipo: linkValido ? 'Con link' : 'Espontánea'
+//         });
+
+//     } catch (error) {
+//         console.error('Error en create Vinculacion:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: error.message || 'Error al guardar los datos',
+//             error: error.message
+//         });
+//     }
+// };
+
 exports.create = async (req, res) => {
     try {
         const data = req.body;
-        const { codigo_link } = req.query;
 
         if (!data.numero_documento) {
             return res.status(400).json({
@@ -23,7 +109,7 @@ exports.create = async (req, res) => {
             });
         }
 
-        // ✅ Verificar si existe una postulación activa
+        //  Verificar si existe una postulación activa
         try {
             const puedePostular = await vinculacion.puedePostular(data.numero_documento);
             if (!puedePostular.puede) {
@@ -43,30 +129,35 @@ exports.create = async (req, res) => {
             }
         }
 
-        let idUsuarioAfiliador = null;
+        let idUsuarioAfiliador = data.id_usuario_afiliador || null
+        const codigoLink = data.codigo_link || null
+
         let linkValido = false;
 
-        if (codigo_link) {
-            const resultado = await LinkAfiliacion.validarLink(codigo_link);
+        if (codigoLink) {
+            const resultado = await LinkAfiliacion.validarLink(codigoLink);
+
             if (!resultado.valido) {
                 return res.status(400).json({
                     success: false,
                     message: resultado.message
                 });
             }
+
             linkValido = true;
             idUsuarioAfiliador = resultado.link.id_usuario;
-            await LinkAfiliacion.incrementarUso(codigo_link);
+            await LinkAfiliacion.incrementarUso(codigoLink);
         }
 
         const vinculacionData = {
             ...data,
-            codigo_link: codigo_link || null,
+            codigo_link: codigoLink || null,
             id_usuario_afiliador: idUsuarioAfiliador
         };
 
         const resultado = await vinculacion.create(vinculacionData);
 
+        // ── Respuesta al cliente (no esperamos al correo) ──
         res.status(201).json({
             success: true,
             message: linkValido
@@ -75,6 +166,19 @@ exports.create = async (req, res) => {
             data: resultado,
             tipo: linkValido ? 'Con link' : 'Espontánea'
         });
+
+        // ── Correo de confirmación (no bloquea ni rompe la respuesta) ──
+        const correoDestino = data.email || data.correo || data.correo_electronico;
+
+        enviarCorreoSolicitudVinculacion({
+            email: correoDestino,
+            nombres: data.nombres,
+            apellidos: data.apellidos,
+            documento: data.numero_documento,
+            fechaSolicitud: new Date()
+        }).catch(err =>
+            console.error('❌ Correo de vinculación no enviado:', err.message)
+        );
 
     } catch (error) {
         console.error('Error en create Vinculacion:', error);
@@ -212,6 +316,7 @@ exports.getHistorial = async (req, res) => {
 // ============================================================
 exports.getAll = async (req, res) => {
     try {
+
         const {
             estado,
             numero_documento,
@@ -221,6 +326,9 @@ exports.getAll = async (req, res) => {
             limit
         } = req.query;
 
+
+        const id_usuario_afiliador = req.usuario?.id_usuario
+
         const filters = {};
         if (estado) filters.estado = estado;
         if (numero_documento) filters.numero_documento = numero_documento;
@@ -228,6 +336,7 @@ exports.getAll = async (req, res) => {
         if (apellidos) filters.apellidos = apellidos;
         if (page) filters.page = parseInt(page);
         if (limit) filters.limit = parseInt(limit);
+        if (id_usuario_afiliador) filters.id_usuario_afiliador = id_usuario_afiliador;
 
         const resultado = await vinculacion.findAll(filters);
 
@@ -237,6 +346,8 @@ exports.getAll = async (req, res) => {
             pagination: resultado.pagination,
             filters
         });
+
+
     } catch (error) {
         console.error('Error en getAll Vinculacion:', error);
         res.status(500).json({

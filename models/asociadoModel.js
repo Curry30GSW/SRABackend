@@ -37,6 +37,7 @@ class Asociado {
         ACP05.MORE05,
         ACP05.FRDA05,
         ACP05.BASE05,
+        ACP05.FECN05,
         ACP054.MAIL05,
         ACP054.TCEL05,
         ACP054.TCE205,
@@ -137,30 +138,31 @@ class Asociado {
             countSql += segmentCondition;
         }
 
-        // ✅ 6. ORDENAMIENTO
-        if (filters.sortBy) {
-            const validSortFields = ['DESC05', 'NNIT05', 'CIUD05', 'FRDA05', 'DIST05'];
-            let sortField = filters.sortBy;
-            let sortOrder = filters.sortOrder === 'desc' ? 'DESC' : 'ASC';
+        // ✅ 6. ORDENAMIENTO 
+        const baseFieldOrder = `CAST(REPLACE(REPLACE(ACP05.BASE05, ',', ''), '.', '') AS DECIMAL(15,2))`;
 
-            if (filters.sortBy === 'BASE05') {
-                sortField = baseField;
-            } else if (filters.sortBy === 'DIST05') {
-                sortField = 'ACP05.DIST05';
-            } else if (validSortFields.includes(filters.sortBy)) {
-                sortField = filters.sortBy;
-            } else {
-                sortField = 'ACP05.DIST05';
-            }
+        const validSortFields = {
+            'DESC05': 'ACP05.DESC05',
+            'NNIT05': 'ACP05.NNIT05',
+            'CIUD05': 'ACP05.CIUD05',
+            'FRDA05': 'ACP05.FRDA05',
+            'DIST05': 'ACP05.DIST05',
+            'BASE05': baseFieldOrder,
+        };
 
-            sql += ` ORDER BY ${sortField} ${sortOrder}`;
-        } else {
-            sql += ` ORDER BY ACP05.DIST05 ASC`;
+        let orderClauses = [`ACP05.DIST05 ASC`, `${baseFieldOrder} DESC`];
+
+        // Si el usuario pide un criterio extra distinto a DIST05/BASE05, se agrega como desempate
+        if (filters.sortBy && !['DIST05', 'BASE05'].includes(filters.sortBy)) {
+            const sortField = validSortFields[filters.sortBy];
+            const sortOrder = filters.sortOrder === 'desc' ? 'DESC' : 'ASC';
+            if (sortField) orderClauses.push(`${sortField} ${sortOrder}`);
         }
 
+        sql += ` ORDER BY ${orderClauses.join(', ')}`;
         // ✅ 7. PAGINACIÓN
         const page = parseInt(filters.page) || 1;
-        let limit = parseInt(filters.limit) || 20;
+        let limit = parseInt(filters.limit) || 1000;
         const offset = (page - 1) * limit;
 
         try {

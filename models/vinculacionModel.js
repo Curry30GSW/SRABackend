@@ -65,6 +65,10 @@ class Vinculacion {
         this.es_reactivacion = data.es_reactivacion || 0;
         this.id_solicitud_original = data.id_solicitud_original || null;
         this.motivo_rechazo = data.motivo_rechazo || null;
+
+        this.centro_costo = data.centro_costo || null;
+        this.agencia_nombre = data.agencia_nombre || null;
+        this.agencia_centro_costo = data.agencia_centro_costo || null;
     }
 
     // ============================================================
@@ -73,6 +77,15 @@ class Vinculacion {
 
     // ✅ Crear nueva vinculación (asociado + postulación)
     static async create(data) {
+
+        const esEspontanea = !data.codigo_link && !data.id_usuario_afiliador;
+        if (esEspontanea && !data.centro_costo) {
+            throw new Error("Debe seleccionar una agencia");
+        }
+
+        if (data.codigo_link || data.id_usuario_afiliador) {
+            data.centro_costo = null;
+        }
         // Validaciones existentes...
         if (!data.central_riesgos || !data.tratamiento_datos || !data.apertura_coopserp) {
             throw new Error("Debe aceptar todos los términos y condiciones");
@@ -305,25 +318,23 @@ class Vinculacion {
     static async crearPostulacion(connection, idAsociado, data) {
         const sql = `
         INSERT INTO postulaciones (
-            id_asociado, estado, codigo_link, id_usuario_afiliador,
+            id_asociado, estado, codigo_link, id_usuario_afiliador, centro_costo,
             central_riesgos, tratamiento_datos, apertura_coopserp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `;
         const [result] = await connection.query(sql, [
             idAsociado,
             data.estado || 'PENDIENTE',
             data.codigo_link || null,
             data.id_usuario_afiliador || null,
+            data.centro_costo || null,
             data.central_riesgos ? 1 : 0,
             data.tratamiento_datos ? 1 : 0,
             data.apertura_coopserp ? 1 : 0
         ]);
 
         const idPostulacion = result.insertId;
-
-        // Registrar en historial
         await this.registrarHistorial(connection, idPostulacion, 'PENDIENTE', 'NUEVA_POSTULACION', null);
-
         return idPostulacion;
     }
 
@@ -372,12 +383,16 @@ class Vinculacion {
             p.central_riesgos,
             p.tratamiento_datos,
             p.apertura_coopserp,
+            p.centro_costo,
+            ag.nombre AS agencia_nombre,
+            ag.centro_costo AS agencia_centro_costo,
             a.*,
             u.nombre AS afiliador_nombre,
             u.usuario AS afiliador_usuario
         FROM postulaciones p
         INNER JOIN asociados a ON p.id_asociado = a.id_asociado
         LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
+        LEFT JOIN agencias ag ON p.centro_costo = ag.centro_costo
         WHERE p.id_postulacion = ?
     `;
 
@@ -417,12 +432,16 @@ class Vinculacion {
             p.central_riesgos,
             p.tratamiento_datos,
             p.apertura_coopserp,
+            p.centro_costo,
+            ag.nombre AS agencia_nombre,
+            ag.centro_costo AS agencia_centro_costo,
             a.*,
             u.nombre AS afiliador_nombre,
             u.usuario AS afiliador_usuario
          FROM postulaciones p
         INNER JOIN asociados a ON p.id_asociado = a.id_asociado
         LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
+        LEFT JOIN agencias ag ON p.centro_costo = ag.centro_costo
         WHERE a.numero_documento = ?
         AND p.activo = 1
         ORDER BY p.fecha_creacion DESC
@@ -606,6 +625,7 @@ class Vinculacion {
             p.central_riesgos,
             p.tratamiento_datos,
             p.apertura_coopserp,
+
             a.id_asociado,
             a.tipo_documento,
             a.numero_documento,
@@ -633,14 +653,24 @@ class Vinculacion {
             a.tiene_vivienda,
             a.tiene_vehiculo,
             a.placa_vehiculo,
+
             u.nombre AS afiliador_nombre,
             u.usuario AS afiliador_usuario
+
         FROM postulaciones p
         INNER JOIN asociados a ON p.id_asociado = a.id_asociado
         LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
-        WHERE p.activo = 1
-    `;
+        WHERE p.activo = 1`;
+
         const params = [];
+
+
+
+        if (filters.id_usuario_afiliador) {
+            sql += ` AND (p.id_usuario_afiliador = ? OR p.id_usuario_afiliador is NULL)`;
+            params.push(filters.id_usuario_afiliador)
+        }
+
 
         if (filters.estado) {
             sql += ` AND p.estado = ?`;
@@ -726,6 +756,7 @@ class Vinculacion {
             throw error;
         }
     }
+
     static async getByUsuarioAfiliador(idUsuario) {
         const sql = `
             SELECT 
@@ -735,12 +766,16 @@ class Vinculacion {
                 p.id_usuario_afiliador,
                 p.fecha_creacion,
                 p.fecha_actualizacion,
+                p.centro_costo,
+                ag.nombre AS agencia_nombre,
+                ag.centro_costo AS agencia_centro_costo,
                 a.*,
                 u.nombre AS afiliador_nombre,
                 u.usuario AS afiliador_usuario
             FROM postulaciones p
                 INNER JOIN asociados a ON p.id_asociado = a.id_asociado
                 LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
+                LEFT JOIN agencias ag ON p.centro_costo = ag.centro_costo
                 WHERE p.id_usuario_afiliador = ? 
                 AND p.activo = 1 
                 ORDER BY p.fecha_creacion DESC
@@ -784,12 +819,16 @@ class Vinculacion {
                 p.id_usuario_afiliador,
                 p.fecha_creacion,
                 p.fecha_actualizacion,
+                p.centro_costo,
+                ag.nombre AS agencia_nombre,
+                ag.centro_costo AS agencia_centro_costo,
                 a.*,
                 u.nombre AS afiliador_nombre,
                 u.usuario AS afiliador_usuario
             FROM postulaciones p
             INNER JOIN asociados a ON p.id_asociado = a.id_asociado
             LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
+            LEFT JOIN agencias ag ON p.centro_costo = ag.centro_costo
             WHERE p.codigo_link = ? 
             AND p.activo = 1 
             ORDER BY p.fecha_creacion DESC
@@ -1011,13 +1050,19 @@ class Vinculacion {
         SELECT 
             f.*,
             p.id_postulacion,
+            p.id_usuario_afiliador,
             p.estado,
+            a.tipo_documento,
             a.nombres,
             a.apellidos,
-            a.numero_documento
+            a.numero_documento,
+            a.lugar_procedencia,
+            u.nombre AS afiliador_nombre,
+            u.usuario AS afiliador_usuario
         FROM fase2 f
         INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
         INNER JOIN asociados a ON f.id_asociado = a.id_asociado
+        LEFT JOIN users u ON p.id_usuario_afiliador = u.id_usuario
         WHERE f.id_fase2 = ?
     `;
         try {
@@ -1029,6 +1074,7 @@ class Vinculacion {
         }
     }
 
+
     // ✅ Obtener Fase 2 por ID de postulación
     static async getFase2ByPostulacion(idPostulacion) {
         const sql = `
@@ -1039,8 +1085,7 @@ class Vinculacion {
             a.nombres,
             a.apellidos,
             a.numero_documento,
-            a.correo_electronico,
-            a.telefonos
+            a.correo_electronico
         FROM fase2 f
         INNER JOIN postulaciones p ON f.id_postulacion = p.id_postulacion
         INNER JOIN asociados a ON f.id_asociado = a.id_asociado

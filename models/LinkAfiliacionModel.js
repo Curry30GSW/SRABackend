@@ -54,10 +54,19 @@ class LinkAfiliacion {
 
     // Obtener link por ID
     static async getById(id) {
-        const sql = 'SELECT * FROM links_afiliacion WHERE id_link = ?';
+        const sql = `
+            SELECT 
+                l.*,
+                u.nombre as nombre_usuario,
+                u.usuario as username,
+                u.rol as rol_usuario
+            FROM links_afiliacion l
+            INNER JOIN users u ON l.id_usuario = u.id_usuario
+            WHERE l.id_link = ?`;
         try {
             const [rows] = await pool.query(sql, [id]);
-            return rows.length > 0 ? new LinkAfiliacion(rows[0]) : null;
+            // return rows.length > 0 ? new LinkAfiliacion(rows[0]) : null;
+            return rows.length > 0 ? rows[0] : null;
         } catch (error) {
             console.error('Error en getById LinkAfiliacion:', error);
             throw error;
@@ -66,22 +75,32 @@ class LinkAfiliacion {
 
     // Obtener link por código
     static async getByCodigo(codigo) {
-        const sql = 'SELECT * FROM links_afiliacion WHERE codigo = ?';
+        const sql = `SELECT l.*, u.nombre as nombre_usuario, 
+                    u.usuario as username, u.rol as rol_usuario 
+                    FROM links_afiliacion l INNER JOIN users u 
+                     ON l.id_usuario = u.id_usuario 
+                    WHERE l.codigo = ?`;
         try {
             const [rows] = await pool.query(sql, [codigo]);
-            return rows.length > 0 ? new LinkAfiliacion(rows[0]) : null;
+            return rows.length > 0 ? rows[0] : null;
         } catch (error) {
             console.error('Error en getByCodigo LinkAfiliacion:', error);
             throw error;
         }
     }
 
+
     // Obtener links por usuario
     static async getByUsuario(usuarioId) {
-        const sql = 'SELECT * FROM links_afiliacion WHERE id_usuario = ? ORDER BY fecha_creacion DESC';
+        const sql = `SELECT l.*, u.nombre as nombre_usuario,
+                u.usuario as username,
+                u.rol as rol_usuario  FROM links_afiliacion l
+                INNER JOIN users u ON l.id_usuario = u.id_usuario
+                WHERE l.id_usuario = ? AND  l.activo = 1 ORDER BY l.fecha_creacion DESC`;
         try {
             const [rows] = await pool.query(sql, [usuarioId]);
-            return rows.map(row => new LinkAfiliacion(row));
+            // return rows.map(row => new LinkAfiliacion(row));
+            return rows;
         } catch (error) {
             console.error('Error en getByUsuario LinkAfiliacion:', error);
             throw error;
